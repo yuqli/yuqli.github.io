@@ -1,0 +1,37 @@
+---
+layout: post
+title:  "pointnet 论文理解"
+date:   2018-11-26 17:10:34 -0400
+categories: jekyll update
+---
+(This is a restoration of a previous post hosted on Wordpress. Hyperlinks might be missing and formatting might be a bit messy.)
+
+这几天（上周）在看 pointnet 系列的论文，具体研究问题是如何处理点云数据。大的研究领域是机器学习如何处理3D视觉问题，在无人车和机器人领域有应用，因为 depth camera，传感器，激光雷达传回来的图片有些是 point cloud。
+
+点云数据是用点来代表三维图像的一种数据格式，例如一张椅子的三维图。从椅子平面上抽取2400个点，每个点是 (x, y, z) 的一个三维向量，那么把这些点在三维空间里画出来，就会得到飞机的图片。这里有一个可以在线观看的例子。这张图片里的点很多，所以观看效果很逼真。如果点少的话，就会变成这样。
+
+不同于2D图片，点云数据是无序的。传统 CNN 通过滑动 kernel 的卷积操作，能提取出 local 像素点之间的依赖关系（例如 max pooling，以及 convolution 是 weighted sum of local points）。但点云数据没有清晰的 local 关系。如何解决呢？1）可以把点云数据复原到三维，把它们分割成一小格（voxel）然后进行3D卷积。2）可以把点云数据投影到二维，代表算法有MV3D 和 AVDO
+
+pointnet 是这系列的重点论文，2016年发表。这篇论文说不需要进行这样的处理，而是直接把点云数据输入到 multi-layer perceptron 中。步骤如下：
+
+假设 batch size = 32, 每张图片有 1024个点。那么每批次输入的数据形状为 32 * 1024 * 3
+首先把这个数据中每一张图片和一个 3 * 3 的 transform matrix 相乘。整体的形状，就是 32 * 1024 * 3 的 tensor乘上 32 * 3 * 3 的 tensor，使用 tf.matmul 函数，得到的结果是 32 * 1024 * 3。物理意义是把这个点进行坐标变换。这样做的原因是这篇讲  spatial transformer 的论文，还没看。
+这个 transform matrix 并不是随机生成，而是一个较复杂的 T-net。它的网络结构和这个大的网络结构一样，也是将输入图片几次升维，非线性变换 + bias，然后降维，得到的矩阵。所以不同的图片虽然分享了网络参数，但是并没有乘以相同系数。
+为什么这个网络这么复杂？其实和GRU这类网络有异曲同工之处，都是用当下数据既生成权重，又用这个权重再次处理当下数据。
+图片处理好之后的形状是  32 * 1024 * 3. 接下来是第一次升维。具体操作是，每个点的三个维度，求 weighted sum 获得一个 scalar。然后这样的操作重复64次，得到一个64维的向量。其实也就是长度为3的向量乘以 3 * 64 的矩阵。这样会得到 32 * 1024 * 64 维的数据。将这个数据加上随机的 bias 之后，做 batch normalization，形状不变。
+在作者的源代码中，这一步没有用拼接 64 个线性层的方法，而是用 tensorflow 中的 conv2d 实现。通过变换 channel 数来代表64个 fully connected layer。
+接下来又是一次“升维”操作，和上一步一样，但是输出的维度仍然是64.
+现在的数据形状是 32 * 1024 * 64.接下来是 feature transform。通过同样的网络结构，获得一个 32 * 64 * 64 的 tensor。用 tf.matmul 把每一个点再次变换，原理和2）一样。
+transform 之后，将图片进行升维。先升到64维，然后是128，最后是 1024.最后我们得到一个 32 * 1024 * 1024 的数据形状。
+在作者的源码中，数据形状是32 * 1024 * 1 * 1024，因为要使用 conv2d 操作。
+接下来是关键一步：要概括总结上一步中每个图片中所有的点，得到代表全局信息的向量。这里通过 maxpooling 实现，也就是对每个 channel ，取图片中所有点中的最大值。也就是 element-wise max pooling。
+源码中的实现是通过tf.max_pool 函数，输入就是 32 * 1024 * 1 * 1024 的这个数据，kernel size = [1, num_points (1024), 1, 1]，输出是 32 * 1 * 1 * 1024。
+为什么不用 sum 或者 average？这篇论文针对 max pooling 操作提出了理论性质，我还没看。
+一番折腾后，终于得到了代表每张图片的全局向量。下一步是reshape ，成为形状为 32 * 1024 的一个数据块。把两个多余维度扔掉。
+上面的步骤是为了学习表征。针对具体的任务，又会有剩下几个步骤：
+
+classification：只需要全局表征即可。把这个表征通过三层 fully connected layers 生成长度为 40 的向量（因为一共40类），通过 softmax 层得到概率，用 cross entropy 的均值作为 loss function，通过一维逼近得到参数的最优值。
+segmentation：作者的处理是对每个点做 classification，每个点都贴上这个全局变量后，进行分类。
+semantic segmentation，不是很懂，略过。
+这篇文章的重点在于1）将简单的网络结构直接用于点云数据，2）maxpooling 操作的性质（invariant to input orders）
+

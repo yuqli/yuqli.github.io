@@ -1,0 +1,61 @@
+---
+layout: post
+title:  "ResNet: annotated version"
+date:   2019-02-02 20:38:34 -0400
+categories: jekyll update
+---
+(This is a restoration of a previous post hosted on Wordpress. Hyperlinks might be missing and formatting might be a bit messy.)
+
+This post annotate PyTorch's implementation of ResNet.
+
+ResNet is one of the most widely used network structure for image tasks in the industry.
+
+The motivation for the original idea is deep neural networks, if we simply stack layers together, sometimes perform worse than shallow networks. For example, a network of 52 layers has higher training errors than a network of 36 layers. This is strange because in theory, deep networks should always be no worse than shallow networks: a constructed solution is to make all the extra layers identity matrix, and the two networks should perform the same.
+
+The difficulty in optimization is NOT because of the gradient vanishing problem. 1) the authors use batch normalization after every conv layer, so forward propagated signals have non-zero variances. 2) the authors tested norms of backprop gradients and ensured that they exhibit healthy norms. Also the 34-layer plain net still have competitive accuracy so the gradients do not vanish.
+The training error cannot be reduced simply by adding more iterations.
+The conjecture is deep neural nets have exponentially low convergence rates.
+To solve this problem, this paper's key idea is to let some of the layers learn the "residuals" of a function instead of the original function. There is no rigorous math proofs. But the intuition is, we already one of the solutions to make sure that deep networks performs no worse than shallow layers is to make all the extra layers identity transformations. So we can pass this information to these layers to reduce its optimization efforts, by manually adding an identity transformation to their results.Thus, these layers only need to learn the "residuals" of the original transformation minus the identity transformation. Mathematically, suppose the original "real" transformation that these layers are trying to learn is H(x), now they only need to learn H(x) - X.
+
+Now practically, should we assume H(x) and X are always the same dimension? (Here "dimension seems to be particularly referring to number of channels, as shown in figure 3 of the original paper) The answer is no. The authors provide two options for handling missing dimensions.
+
+Perform a linear project W_s in the shortcut connection so that we got H(x) = F(x) + W_s X. i.e. X is passed through a linear combination to make sure dimensions stay the same.
+Still use the identity mapping but make all extra channels zero paddings.
+Theoretically, we can also do this when the dimensions are the same, i.e. transform X before adding it to the residuals. But this is unnecessary as identity matrix alone is sufficient, shown by the experiments. Using projective shortcut in models with all conv layers with channels increase is only marginally better than using identity shortcut in these models, and this is likely due to increase of parameters.
+
+Note also practically F(x), i.e. the residuals, are implemented as 2 ~ 3 linear or conv layers. In the implementation we are going to see below they are conv layers.
+
+Another insight for me is "deep" networks are really deep and complex. I only coded basic building blocks for these networks, e.g. convolution, LSTM, but I in fact have not tried building 100 layers of such building blocks! ResNet proposes one model of 152 layers. A practical question is how do we implement it when there are so many layers? Also, when the network is this deep there are many design decisions to make. e.g. how large should a filter's kernel size be? What should the stride and padding be? How about dilation? I do not have experience with tuning all these hyper-parameters.
+
+Some of the design principles I read from the ResNet paper, inspired by VGG nets:
+
+most filters are 3 by 3. In fact, 3 conv3x3 layers has the same receptive field with one conv7x7 layer, but they have fewer parameters (27 vs 49). So stack many small filters is a more economic solution than using one big filter (with the price of more dependencies between output feature maps).
+Number of features * feature map size should be roughly constant.
+For example, for the same output feature map size, the conv layers have the same number of channels.
+If we halve the output feature map size by using a conv layer, we usually double the number of filters to preserve the time complexity per layer.
+conv layer can also be understood as a downsampling layer. e.g. a conv layer with stride=2 can halve the feature map size.
+shortcut networks do not increase the number of parameters or computation complexity (only by a constant addition)
+Fortunately, PyTorch offers a ready-made implementation in torch.vision package. Here is my annotated version of the code.
+
+This is just the boilerplate code. Note the `model_urls` list stores pre-trained model weights for some network structures. "resnet18" means "Residual Net with 18 layers".
+
+These are two most basic convolution filters used in ResNet. Notice ResNet does not use filters of other sizes, and all default stride sizes are 1. Filter size 1 is for reshape data channel dimensions. For example, a data might have 64 input channels and 28x28 pixel each. Then a conv1x1 layer, if it is to output 256 channels, will first sum over all channels to get one number, then replicate that number 256 times with different weights. It can also be used to reduce number of channels. Since the the residual operation need the input and output of same dimension, we will need such an operation to adjust data shapes.
+
+Here `inplanes` and `planes` are simply input channels and output channels. Note this is a basic module to be stacked in ResNet. This module consists of two conv 3x3 layers, each followed by a batch normalization layer. The first conv layer is also passed through a ReLU for nonlinearility. (Note ReLU will cap all input greater than a certain value into a zero, so if you plan to use that output as a divisor be careful not dividing anything by zero.)
+
+Then there is an option for downsampling or not. If you look at the `_make_layers` function in `ResNet` class, you will notice that `downsample` is an `nn.Sequential` consists of 1) a conv1x1 layer that aims to expand the number of channels of input data, and 2) a batch normalization layer that follows the conv1x1 layer. The downsample option is automatically enabled when the input dimension does not satisfy certain conditions (explained in the `ResNet` class annotation), or the stride is greater than 1.
+
+Here the Bottleneck class defines a three layer network. Here are the meanings of the parameters:
+
+inplanes: input channel to the first conv layer
+planes: the number of channels for the intermediate conv layer.
+The final number of output channels will be planes * 4, because there is an expansion factor = 4.
+This whole module is first change input channels from "inplanes" to "planes", then shrinkage the size of feature map, finally expand the output channels to 4 * planes. Why do we need such a structure? It's mainly for computation efficiencies and reducing number of parameters. Compare two structures 1) two 3x3 conv layers with 256 channels and 2) one 1x1 conv with 64 channels, one 3x3 conv with 64 channels, and one 1x1 conv with 256 channels. The first : parameters = 3*3*256*2, the second 64 + 3*3*64+256.
+
+The key to understand this chunk of code is to the `_make_layer` function. It takes the following parameters:
+
+block: can be either a `BasicBlock` object or a Bottleneck object. The first consists of two conv layers
+planes: planes * self.expansion is the number of channels for the intermediate layers. (Q: why do we need the self.expansion parameter at all?)
+blocks: number of basic blocks (e.g. a basicblock or a bottleneck block)
+stride=1: stride for blocks
+The above are just different configurations for different ResNet structures.

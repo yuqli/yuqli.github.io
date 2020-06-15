@@ -1,0 +1,74 @@
+---
+layout: post
+title:  "Machine Learning in Spark"
+date:   2017-12-18 16:41:34 -0400
+categories: jekyll update
+---
+
+(This is a restoration of a previous post hosted on Wordpress. Hyperlinks might be missing and formatting might be a bit messy.)
+
+This post describes Spark's architecture for building and running machine learning algos.
+
+Machine learning algorithms can be found by Spark's MLlib API.
+
+The data structure used are DataFrame. With regard the the last post, this means we need to import spark SQL context to use as well.
+
+There are five key concepts:
+
+DataFrame: the data structure. Each column can be text, labels, features, or numbers...
+Transformer: an object to transform a DataFrame to another one. A machine learning algo is represented as a transformer that takes an input DataFrame with features and outputs a DataFrame with the predictions. A transformer is called by a transform() method on a DataFrame.
+Estimator: an algorithm can be fit to a DataFrame and produces a transformer.  e.g. a ML algo can be fit to the training set and produce a model. An estimator is called by a fit() method on a DataFrame.
+Pipeline: a collection of transformers and estimators that eventually consists of a trained model.
+Parameters: parameters of the transformer and the estimator.
+Now go over the example on Spark Website for understanding of how to use machine learning Pipeline.
+
+Step one: read in data 
+
+First create the spark SQL context, and use that to create a SparkDataFrame. This assumes a spark context is already created as sc.
+
+The results of this step:
+
+ 
+
+Step two: preprocess + training = ML pipeline 
+
+Now, preprocess data by constructing a ML pipeline.
+
+Tokenizer here tokenize every text into words ....
+hashingTF: this one is more tricky. As per the document,
+Our implementation of term frequency utilizes the hashing trick. A raw feature is mapped into an index (term) by applying a hash function. Then term frequencies are calculated based on the mapped indices. This approach avoids the need to compute a global term-to-index map, which can be expensive for a large corpus, but it suffers from potential hash collisions, where different raw features may become the same term after hashing. To reduce the chance of collision, we can increase the target feature dimension, i.e., the number of buckets of the hash table. The default feature dimension is 220=1,048,576
+
+My understanding on hashTF (hash term frequency?) is that :
+
+Hash functions map data of arbitrary size to a fixed size. It maps every word to a unique position, hopefully. But there will be collisions, which we ignore...
+Next we just count the number of items at each position.
+This saves the step of storing a map of word - index. Instead we just need to store a function.
+Now let's go over the output of each step. First, check the results of the tokenizer....
+
+Then, check the results of the HashingTF....
+
+Third, check the output of the logistic regression model:
+
+In our original data, we only have id, text and label.
+
+'words' are added by the tokenizer,
+'features' are added by the hashingTF,
+'rawPrediction' is created by logistic regression. It is the "score" of each class labels. It varies algo by algo. For example, in a neural network it can be interpreted as the last layer passed to the softmax.
+prediction: the predicted class label. the argmax of raw prediction.
+probability : the "real" probability given raw prediction... Looks like passing rawprediction to a softmax for multi-class classification problems.
+Step three: making predictions
+
+After building the model now we can start to make predictions by building and testing on a toy test set.
+
+First build test set --- it is similar to the training set, except without labels
+
+Make predictions...
+
+Here prediction is of the same format as the transformed train dataset. The reason is, fitting machine learning algorithm is equivalent to transform the test data to add other columns...
+
+Finally, printing out the results we care: prediction
+
+Question: what will the output be if some of the classes are not in the training set?
+
+Reference: https://spark.apache.org/docs/latest/ml-pipeline.html#main-concepts-in-pipelines
+

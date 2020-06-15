@@ -1,0 +1,34 @@
+---
+layout: post
+title:  "重读 hierarchical attention network for document classification"
+date:   2018-12-07 20:57:34 -0400
+categories: jekyll update
+---
+
+(This is a restoration of a previous post hosted on Wordpress. Hyperlinks might be missing and formatting might be a bit messy.)
+
+这篇文章的 key idea 是，把关于文档结构的层级结构信息加入模型，有助于生成更好的文本表征。
+
+这里的文档结构主要是说文章由句子组成，是层级结构。之前的方法是把所有句子连成一起输入一个 RNN 模型，这样其实丢失了段落这样的层级结构。
+
+相应地，另一种方法是把每个句子里的词先分步输入一个 RNN 模型，生成句子表征；再将所有的句子表征输入另一个RNN模型，生成文本表征；最后再用文本表征进行分类。这样的方法，神经网络之间并不共享参数，而且两次输入RNN，故可以捕捉到层级结构。
+
+将文本分层级处理，还涉及到更为灵活的注意力机制的应用。句子和词层面分别实现注意力机制，可以使表征从特定的“重要”元素里获取更多信息。
+
+具体的网络实现有几个特点：
+
+关于注意力机制的实现；
+
+将每个句子里的词向量送入 GRU (see last post on explanation on what is a GRU)，收集每一步输出的 hidden state （因而不能直接调用 pytorch nn.GRU 函数而需要稍作改变写个 for-loop 并把结果存起来)
+把所有的 hidden state 送入MLP，生成对词向量的表征
+随机初始化一个 context vector，这个 context vector 的意义是句子的含义。用它和每个向量的表征求点积，代表 attention score。score 越高，说明两个向量越相似，也就说明这个词在这个句子里有更显著的意义。因此给它的 attention weight 也就应该比较高。
+将 attention score 送入 softmax 函数求得权重。用这个权重和原始的 hidden states sequence 求 weighted sum 得到整个句子的表征。
+关于层级结构的实现：
+
+我们一共只训练两套 GRU 单元，一个负责总结句子，一个负责总结段落。因此所有的句子必须一样长，所有的段落必须有一样长度的句子。因此在预处理时，过长的句子被剪掉，过短的句子被补足。具体的长度选取可以看训练数据中长度的分布，用 qunatile 选择。
+将数据划整齐后，首先用上述方法得到每个句子的表征。
+其次，针对每个段落，再把所有的句子表征送入GRU，得到段落表征。
+最后就可以用这个表征做分类了。
+论文地址：https://www.cs.cmu.edu/~hovy/papers/16HLT-hierarchical-attention-networks.pdf
+
+
