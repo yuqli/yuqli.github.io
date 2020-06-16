@@ -16,13 +16,12 @@ During the process, I had to pick up some knowledge on 1) the Linux file system 
 
 Since there are many details involved, this post will mostly point the readers to the tools I used and places to find how to use them. It covers the following sections:
 
-# CityGML : what is it and database setup
+- CityGML : what is it and database setup
+- FME: the angel that does the heavy lifting for you for free, from CityGML to mesh
+- PCL command tools: a not-so-smart way (i.e. the Engineering way) from mesh to point cloud
 
-FME: the angel that does the heavy lifting for you for free, from CityGML to mesh
-PCL command tools: a not-so-smart way (i.e. the Engineering way) from mesh to point cloud
-
-## 1. CityGML Setup
-## 1.1 What is CityGML
+# 1. CityGML Setup
+#### 1.1 What is CityGML
 CityGML is a markup format to document 3D city maps. It is a text document, basically telling you where a building is, what a building is composed of, where a bridge is, what's the coordinate of a wall surface, where are the lines of a wall, etc...
 
 CityGML is based on XML and GML (geometric markup language). XML specifies document encoding scheme, e.g. class relations, labels and tags... kind of like HTML. GML extends XML by adding sets of primitives, like topology, features, geometry. Finally, CityGML is based on GML but with more constraints that are specific to cities, e.g.
@@ -30,7 +29,6 @@ CityGML is based on XML and GML (geometric markup language). XML specifies docum
 A 3D city model can have various level of details (LoD). LoD1 means the map is only 2D. LoD2 means 3D objects will be extruded from 2D maps into 3D shapes. LoD3 means a building will have windows, roofs and other openings. LoD4 means a building will have interior furnitures.
 
 For example, part of a sample CityGML file might look like this :
-
 
 
 This specifies several surfaces of a building.
@@ -43,90 +41,96 @@ You can see furnitures of the building in the main Window.
 
 References to know more about CityGML:
 
-Groger and Plumer (2012) CityGML - Interoperable semantic 3D city models. Link. This paper goes over details of CityGML and is a more organized guide than the official CityGML website.
-CityGML website for downloading data for specific cities. Many of the Germany cities are available in CityGML format.
-1.2 3D City Database
+- Groger and Plumer (2012) CityGML - Interoperable semantic 3D city models. Link. This paper goes over details of CityGML and is a more organized guide than the official CityGML website.
+- CityGML website for downloading data for specific cities. Many of the Germany cities are available in CityGML format.
+
+# 1.2 3D City Database
 3D City Database is a tool to store geographic databases, and it provides good support for CityGML data.
 
 Now why do we need a database to store CityGML data? Because a city map might be very large and structured, e.g. New York LoD2 city model is ~30G. Such a large file cannot be easily manipulated by text processing tools (e.g. gedit) or visualized because of memory constraint. More, the 3D city database can easily parse modules and objects in the CityGML file and store them in structured ways. So if someone asks the question, how many buildings are there in New York? This question is hard to answer with only the CityGML file, but very easy to answer with a SQL query run on the 3D city database.
 
 To use the 3D City Database, we need to go over the following steps:
 
-1. Set up a PostgreSQL database locally or on a remote server. This database tool also supports Oracle, but I did not make that work. PostgreSQL is a free database tool available for Linux. The documentation is good for specific queries, but if you are new to practical database management, this book might be more helpful in offering a general road trip.
+**Set up a PostgreSQL database locally or on a remote server.** This database tool also supports Oracle, but I did not make that work. PostgreSQL is a free database tool available for Linux. The documentation is good for specific queries, but if you are new to practical database management, this book might be more helpful in offering a general road map.
 
 Specifically, on Linux you need to first make sure you have a disk that has at least 50 GB of free space, and your current user can own directory on that disk. I spent 4 days trouble shooting this because the hard disk on my Laptop has a file system that is actually Windows NTFS, so my sudo user cannot own directories there. Commands like chmod or chown did not work. To solve that problem, I had to back up everything (compress and upload to Google Drive) and reformat that disk into Linux File system. Useful commands and tools here:
 
+```
 parted : a tool to partition a new disk. A disk has to be partitioned before it can be mounted and used.
 mount : add a disk's file system to the current operation system file system tree
 lsblk : list block and check their file systems
 mkfs: make filesystem. ext4 is a linux format.
-Linux wrapper tools useful for PostgreSQL actions:
+```
 
+Linux wrapper tools useful for PostgreSQL actions:
+```
 pg_createcluster: create a cluster. Used because the default PostgreSQL directories lie somewhere under /home, and this disk is usually small. If we want a cluster in another location should use this command. Note the path should be absolute path instead of relative path.
 pg_cltcluster : start / stop / drop a cluster.
 psql: used to connect to a running server. Note PostgreSQL has a default user "postgres", and 1) you need to set up the password for it before a database can be connected from other clients (e.g. 3D database importer / exporter) and 2) this "postgres" user is not normally logged into directly, rather use "sudo -u postgres psql -p" to only use it to log into postgres server.
+```
 
-2. Connect the 3D City Database tool to the PostgreSQL database. Download the 3D City DB tools here. After running the install .jar file, you will notice there are basically a few sets of tools, of which we need to use two:
+**Connect the 3D City Database tool to the PostgreSQL database.** Download the 3D City DB tools here. After running the install .jar file, you will notice there are basically a few sets of tools, of which we need to use two:
 
-The SQL and Shell scripts used for setting up a geographic database
-The importer / exporter used for importing data into the database
+- The SQL and Shell scripts used for setting up a geographic database
+- The importer / exporter used for importing data into the database
+
 Before diving into details, here are two helpful resources you should check out for specific questions:
 
-this documentation is very helpful and one actually needs to read it to proceed... i.e. no other better online documents...
-This online Q&A on Github is actually active, the developers will answer questions there. I discovered it too late !
+- this documentation is very helpful and one actually needs to read it to proceed... i.e. no other better online documents...
+- This online Q&A on Github is actually active, the developers will answer questions there. I discovered it too late !
+
 After getting the documentation, these sections are helpful:
 
-Step 1 is to set up a PostgreSQL database using the scripts included in this 3D DB tool to set up all the schemas, this starts from page 102 / 318 of the version 4.0 documentation. Note you will need to create a postgis extension, details here. On Ubuntu you can get it with "apt install postgis" or something like this.
+- Step 1 is to set up a PostgreSQL database using the scripts included in this 3D DB tool to set up all the schemas, this starts from page 102 / 318 of the version 4.0 documentation. Note you will need to create a postgis extension, details here. On Ubuntu you can get it with "apt install postgis" or something like this.
 
-Step 2 is to use the importer / exporter to connect to that database and import data. The importer/exporter located in the "bin" folder, and you just run the .sh file to start it. Details can be found on page 125 / 318 of the version 4.0 documentation.
+- Step 2 is to use the importer / exporter to connect to that database and import data. The importer/exporter located in the "bin" folder, and you just run the .sh file to start it. Details can be found on page 125 / 318 of the version 4.0 documentation.
 
-3. create tiled version of NYC data Some CityGML data is too large to load for other softwares, and the importer / exporter can help create tiles. Details on this are on Documentation Page 142 / 318 and 171 / 318. Essentially, we need to first read everything into a database, then output different tiles of the map. Note we should set up one database for one city.
+**create tiled version of NYC data** Some CityGML data is too large to load for other softwares, and the importer / exporter can help create tiles. Details on this are on Documentation Page 142 / 318 and 171 / 318. Essentially, we need to first read everything into a database, then output different tiles of the map. Note we should set up one database for one city.
 
 On a high level, to set up the tiled export a user needs to 1) activated spatial indices under the "database" tab and 2) specified number of bounding boxes in the "preference" -> "Bounding Box" tab and 3) specified the bounding area in the "Export" tab. These would be enough for the program to start tiled export.
 
 The documentation is not very clear on the details. Here are also two Q&As of help I got from other users:
 
-https://knowledge.safe.com/questions/84869/output-buildings-into-individual-obj-files.html?childToView=85184#comment-85184
-https://github.com/3dcitydb/importer-exporter/issues/73
+- https://knowledge.safe.com/questions/84869/output-buildings-into-individual-obj-files.html?childToView=85184#comment-85184
+- https://github.com/3dcitydb/importer-exporter/issues/73
 
-2. FME Workbench: from cityGML to mesh
+# 2. FME Workbench: from cityGML to mesh
 After the last section, we should already have a bunch of .gml files that are maps of different regions of a city. You can visualize a .gml file using FME software.  FME is a data warehouse tool and has two tools: FME workbench and FME data inspector. Data inspector is just for looking at data, while workbench can be used to edit data. You will need a license to open the software, but a student account can apply for free trial. The application process takes a few hours. Note you need to register your code on the FME licensing assistant and download the license file, or else the activation will void next time you open it.
 
 For example, this is a region of Zurich looks like:
 
 
-
 The next step is to extract individual buildings from it, as well as converting them into mesh files like .obj. The basic idea is:
 
-First identify and output individual buildings from a single .gml file. This is done by a fanout operation.  You will also need an aggregator because a "building" consists of 1) roof surfaces, 2) wall surfaces, and 3) ground surfaces. Buildings can be identified by a parent id.
-Second you will need to automate the process with all .gml files. This is done through setting up a file and document reader... i.e. you will need another FME workspace to read in different files in the same directory, and call the sub-workspace from this parent workspace.
+- First identify and output individual buildings from a single .gml file. This is done by a fanout operation.  You will also need an aggregator because a "building" consists of 1) roof surfaces, 2) wall surfaces, and 3) ground surfaces. Buildings can be identified by a parent id.
+- Second you will need to automate the process with all .gml files. This is done through setting up a file and document reader... i.e. you will need another FME workspace to read in different files in the same directory, and call the sub-workspace from this parent workspace.
+
 FME also has a little bit of learning curve. To understand the above two operations, you might need to know:
 
-Basic concepts of FME: these two tutorials: getting started and core concepts.
-Basic FME training course Very similar material with the two basic concepts of FME, especially the four tutorials in "getting started"
-FME advanced training course This is necessary for both the "fanout " and "batch processing". With foundations from basic course it should be easy to grasp.
+- Basic concepts of FME: these two tutorials: getting started and core concepts.
+- Basic FME training course Very similar material with the two basic concepts of FME, especially the four tutorials in "getting started"
+- FME advanced training course This is necessary for both the "fanout " and "batch processing". With foundations from basic course it should be easy to grasp.
+
 Finally, here is a Q&A I posted on FME forum and people helped pointing me to the correct places.
 
 Eventually, individual buildings will look like this:
 
 
-
- 
-
-3. PCL command line tool: from mesh to point cloud
+# 3. PCL command line tool: from mesh to point cloud
 The last step is to create point cloud from mesh, because we want to test methods specifically applicable to point cloud. I found the following tools :
 
-This tool that someone gave me: https://github.com/simbaforrest/trimesh2pointcloud It uses Poisson disk sampling. This tool have trouble processing 2D meshes (some building data seems to be dirty) as the function won't return. I tried python package "signal" and "multiprocessing" to kill timeout function but neither work. So I gave up with this tool.
-Cloud Compare: An open source file to edit cloud files. This tool has a command line tool but reports error when I try to save point cloud... So I gave up with this tool too.
-PCL : Point Cloud Library.
-pyntcloud: a python library. It seemed bit troublesome to read .obj instead of .ply files. It seems it mainly supports .ply files so I gave up with this tool
-I consulted this Stackoverflow Q&A 
+- This tool that someone gave me: https://github.com/simbaforrest/trimesh2pointcloud It uses Poisson disk sampling. This tool have trouble processing 2D meshes (some building data seems to be dirty) as the function won't return. I tried python package "signal" and "multiprocessing" to kill timeout function but neither work. So I gave up with this tool.
+- Cloud Compare: An open source file to edit cloud files. This tool has a command line tool but reports error when I try to save point cloud... So I gave up with this tool too.
+- PCL : Point Cloud Library.
+- pyntcloud: a python library. It seemed bit troublesome to read .obj instead of .ply files. It seems it mainly supports .ply files so I gave up with this tool
 
-I eventually settled with use pcl_mesh_sampling. It can be installed on Ubuntu 16.04 with apt-get pcltools or something like that. The command is very easy to use: the first argument is the input file name the second argument is the output file name. Then you specify the number of points to sample.
+- I consulted this Stackoverflow Q&A 
+
+I eventually settled with use `pcl_mesh_sampling`. It can be installed on Ubuntu 16.04 with apt-get pcltools or something like that. The command is very easy to use: the first argument is the input file name the second argument is the output file name. Then you specify the number of points to sample.
 
 A remaining issue is how to automate it. Since it is a command line a natural way is to use bash script, so you need some string manipulation in bash. A bigger problem is every time this tool generates and saves a point cloud, it will visualize it using a window. Until you close that Window, the process won't finish. So we need to automatically "close" the window with anther shell script that calls xdotool at a fixed time interval to automatically close the specified Window. Note we cannot use the "windowkill " option for xdotool but need to simulate the key stroke alt+F4 (i do not know why). Full command is
 
-xdotool search "$WINDOWNAME" windowactivate --sync key --window 0 --clearmodifiers alt+F4
+`xdotool search "$WINDOWNAME" windowactivate --sync key --window 0 --clearmodifiers alt+F4`
 
 This Q&A is helpful (others are less).
 
